@@ -2,7 +2,7 @@
 
 ## What is ASTK?
 
-ASTK is a **shared-process UI testing framework** for iOS. It lets XCUITest suites **launch your app once** and then **swap test scenarios at runtime** — without cold-launching between every test case.
+ASTK is a **shared-process UI testing framework** for iOS. It lets XCUITest suites **launch your app once**, **swap test scenarios at runtime** — without cold-launching between every test case — and drive the UI through an **async Page Object Model** where element accessors use **`XCTWaiter`-based waits** and **`async let`** to resolve multiple elements in parallel instead of blocking sequentially.
 
 ### The problem
 
