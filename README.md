@@ -1,5 +1,7 @@
 # AsyncSharedTestingKit (ASTK)
 
+**AsyncSharedTestingKit** is the full name of this Swift package. The GitHub repository and SPM checkout folder are shortened to [**astk**](https://github.com/illescasDaniel/astk); library products keep the `ASTK` prefix (`ASTK`, `ASTKApp`, `ASTKXCTest`).
+
 Shared-process UI testing for iOS: **launch once**, apply **Codable scenarios at runtime**, recreate SwiftUI root state, and drive tests with an **async Page Object Model**.
 
 Large XCUITest suites should not cold-launch the app per test. ASTK separates three concerns so XCTest never links into your app target:
@@ -9,6 +11,22 @@ Large XCUITest suites should not cold-launch the app per test. ASTK separates th
 | **ASTK** | `import ASTK` | App (via ASTKApp) and UI tests (via ASTKXCTest) | Settings, URL transport, ready marker, session host, protocols |
 | **ASTKApp** | `import ASTKApp` | DEBUG app only | SwiftUI session shell (`.id` recreate + ready marker) |
 | **ASTKXCTest** | `import ASTKXCTest` | UI test target only | Async POM helpers, `SharedProcessLauncher`, navigation popper |
+
+## Installation
+
+Add the package in Xcode (**File → Add Package Dependencies**) or in `Package.swift` using the **astk** repo URL. Xcode resolves it as the **AsyncSharedTestingKit** package:
+
+```swift
+.package(url: "https://github.com/illescasDaniel/astk", from: "0.1.0")
+```
+
+When referencing products from another local package, use the Swift package identity `AsyncSharedTestingKit` (or `astk`, depending on your `Package.swift` resolver):
+
+```swift
+.product(name: "ASTK", package: "AsyncSharedTestingKit")
+```
+
+Link **`ASTKApp`** from your DEBUG app target and **`ASTKXCTest`** from your UI test target. Shared types (`UITestConfiguration`, transport scheme) can live in a small app-specific kit that depends on **`ASTK`**.
 
 ## Why shared-process mode?
 
@@ -78,7 +96,7 @@ MyRootView()
   .onOpenURL { coordinator.handleOpenURL($0) }
 ```
 
-If a complex app hierarchy hits a Swift generic-`View` demangle crash with `UITestSessionView`, inline the same shell (`.id(generation)`, ready marker, `onChange(of: host.sessionGeneration)`, wire coordinator on appear) — see `GamesLibrary/App/UITest/UITestAppContent.swift`.
+If a complex app hierarchy hits a Swift generic-`View` demangle crash with `UITestSessionView`, inline the same shell (`.id(generation)`, ready marker, `onChange(of: host.sessionGeneration)`, wire coordinator on appear) — see the GamesLibrary example below.
 
 Implement `UITestNavigationResetting` on your coordinator to clear `NavigationPath` before each apply.
 
@@ -119,6 +137,139 @@ func testWelcomeVisible() async throws {
 
 Open apply URLs with **`XCUIDevice.shared.system.open(url)`**, not `app.open(url)` — after in-app navigation, `XCUIApplication.open` often fails to deliver the URL.
 
+## GamesLibrary example
+
+[GamesLibrary](https://github.com/illescasDaniel/GamesLibrary) is the reference host app. Add ASTK as a remote package, then wire app-specific types in a small `UITestKit` module.
+
+### Deep link scheme
+
+```swift
+public enum GamesLibraryUITestTransport {
+  public static let deepLinkScheme = "gameslibrary-uitest"
+}
+```
+
+Register `gameslibrary-uitest` in Info.plist (`CFBundleURLSchemes`).
+
+### Scenario host (mutable stubs + session generation)
+
+```swift
+import ASTK
+import Observation
+
+@MainActor
+@Observable
+public final class UITestScenarioHost: UITestScenarioApplying {
+  public typealias Configuration = UITestConfiguration
+  public private(set) var sessionGeneration = 0
+
+  public let searchGamesUseCase = StubSearchGamesUseCase()
+  public let getGameDetailsUseCase = StubGetGameDetailsUseCase()
+
+  public func apply(_ configuration: UITestConfiguration) {
+    let stubs = UITestSupport.makeStubTables(from: configuration)
+    searchGamesUseCase.apply(responses: stubs.searchResponses)
+    getGameDetailsUseCase.apply(responses: stubs.detailsResponses)
+    sessionGeneration += 1
+  }
+}
+```
+
+### DEBUG app session shell (inline when `UITestSessionView` demangles poorly)
+
+```swift
+import ASTK
+import ASTKApp
+
+struct UITestAppContent: View {
+  @State private var coordinator: AppCoordinator
+  @State private var scenarioHost: UITestScenarioHost
+  @State private var uiTestSessionGeneration = 0
+  @State private var sessionCoordinator: UITestSessionCoordinator<UITestConfiguration>
+
+  var body: some View {
+    @Bindable var coordinator = coordinator
+    @Bindable var scenarioHost = scenarioHost
+
+    ZStack(alignment: .topLeading) {
+      AppRootView(coordinator: coordinator)
+        .id(uiTestSessionGeneration)
+      if uiTestSessionGeneration > 0 {
+        Color.clear
+          .frame(width: 1, height: 1)
+          .accessibilityElement()
+          .accessibilityIdentifier(
+            UITestReadyMarker.identifier(sessionGeneration: uiTestSessionGeneration)
+          )
+          .allowsHitTesting(false)
+      }
+    }
+    .onAppear { wireSessionRuntime(scenarioHost: scenarioHost, coordinator: coordinator) }
+    .onChange(of: scenarioHost.sessionGeneration) { _, generation in
+      uiTestSessionGeneration = generation
+    }
+    .onOpenURL { sessionCoordinator.handleOpenURL($0) }
+  }
+}
+```
+
+Navigation reset before each apply:
+
+```swift
+#if DEBUG
+import ASTK
+
+extension AppCoordinator: UITestNavigationResetting {}
+#endif
+```
+
+### UI test launcher + async page object
+
+```swift
+import ASTK
+import ASTKXCTest
+
+@MainActor
+enum AppLauncher {
+  private static let settings = UITestSessionSettings(
+    deepLinkScheme: GamesLibraryUITestTransport.deepLinkScheme
+  )
+
+  private static let launcher = SharedProcessLauncher<UITestConfiguration, GamesListPage>(
+    settings: settings,
+    makeRootPage: GamesListPage.init,
+    prepareForApply: { app in
+      NavigationBarPopper.popTowardRoot(
+        in: app,
+        rootIdentifiers: [
+          AccessibilityIdentifier.GamesList.screen,
+          AccessibilityIdentifier.GamesList.emptyState,
+        ]
+      )
+    }
+  )
+
+  static func apply(configuration: UITestConfiguration = .default) async throws -> GamesListPage {
+    try await launcher.apply(configuration: configuration)
+  }
+}
+```
+
+Example test:
+
+```swift
+@MainActor
+func testGivenGamesListWhenLaunchedThenShowsTitle() async throws {
+  let list = try await AppLauncher.apply()
+  let screen = try await list.screen
+  try await screen.requireAsync(
+    identifier: AccessibilityIdentifier.GamesList.screen,
+    checks: [.visible()],
+    in: list.app
+  )
+}
+```
+
 ## Async POM helpers
 
 Page accessors should be `get async throws` and wait for **existence only**. Stronger checks are opt-in:
@@ -150,7 +301,7 @@ Nested row IDs: conform subviews to `NestedPageObject` and query via `root.desce
 ## Package tests
 
 ```bash
-cd AsyncSharedTestingKit && swift test
+cd astk && swift test
 ```
 
 XCUITest wait/scroll behavior is validated by host-app UI tests; ASTK unit tests cover transport, process-info, and session host logic without a simulator host.
