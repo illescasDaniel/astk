@@ -1,9 +1,5 @@
 # AsyncSharedTestingKit (ASTK)
 
-**AsyncSharedTestingKit** is the full name of this Swift package. The GitHub repository and SPM checkout folder are shortened to [**astk**](https://github.com/illescasDaniel/astk); library products keep the `ASTK` prefix (`ASTK`, `ASTKApp`, `ASTKXCTest`).
-
----
-
 ## What is ASTK?
 
 ASTK is a **shared-process UI testing framework** for iOS. It lets XCUITest suites **launch your app once** and then **swap test scenarios at runtime** — without cold-launching between every test case.
@@ -26,6 +22,39 @@ ASTK runs the app in **shared-process mode**:
 
 The result: one process, many scenarios, much faster suites — while keeping tests isolated at the UI level.
 
+### Async page objects — faster than blocking XCUITest
+
+Shared-process mode removes **launch** overhead. ASTK's **async page object model** removes **wait** overhead inside each test.
+
+Classic page objects call synchronous `waitForExistence(timeout:)` on every accessor. Each call **blocks the test thread** until the element appears or the timeout expires — even when you need several independent elements on the same screen. Five chips on a details screen means five waits **in sequence**, even though they could be observed at the same time.
+
+ASTK's `ASTKXCTest` product replaces that with **`XCTWaiter`-based async waits**:
+
+| API | What it does |
+|-----|--------------|
+| `waitForExistenceAsync(timeout:)` | Suspends via `XCTNSPredicateExpectation` + `XCTWaiter.fulfillment` instead of blocking |
+| `waitForElementAsync(matching:)` | Resolves an element by accessibility id, async |
+| `requireExistenceAsync` / `requireAsync` | Opt-in validation (`.visible()`, `.nonEmptyText()`, `.tappable()`, …) after existence is confirmed |
+| `get async throws` page accessors | Every screen property waits asynchronously — no unloaded `XCUIElement` leaks |
+
+Page accessors wait for **existence only**; stronger checks are explicit via `requireAsync`, so tests can tap first and assert absence later (e.g. `.exists(false)` after retry).
+
+**Parallel waits with `async let`** — when several elements on one screen are independent, start every wait at once and await together:
+
+```swift
+let row = try await list.gameRow(at: 0)
+async let name = row.name
+async let thumbnail = row.thumbnail
+let (nameElement, thumbnailElement) = try await (name, thumbnail)
+async let nameCheck = nameElement.requireAsync(identifier: "game-row-name", checks: [.visible(), .nonEmptyText()], in: list.app)
+async let thumbnailCheck = thumbnailElement.requireAsync(identifier: "game-row-thumbnail", checks: [.visible()], in: list.app)
+try await (nameCheck, thumbnailCheck)
+```
+
+On the [GamesLibrary](https://github.com/illescasDaniel/GamesLibrary) reference app (8 UI tests, iPhone simulator, Sep 2026), switching from sync waits to async + `async let` cut total suite time **70.3s → 60.4s (~14%)**; the metadata-chips test alone dropped **12.4s → 8.1s (~35%)** because five sequential waits became one concurrent batch.
+
+Combined with shared-process mode (one launch for the whole suite), ASTK targets both **inter-test** and **in-test** idle time.
+
 ### What ASTK is *not*
 
 - **Not a replacement for XCUITest** — it builds on top of it (page objects, async waits, launch helpers).
@@ -42,7 +71,7 @@ ASTK splits into three libraries so **XCTest never links into your app target**:
 |---------|--------|-----------|---------|
 | **ASTK** | `import ASTK` | App kit + UI tests (via other products) | Settings, URL transport, ready marker, session host, protocols |
 | **ASTKApp** | `import ASTKApp` | **DEBUG app only** | Session coordinator, optional `UITestSessionView` shell |
-| **ASTKXCTest** | `import ASTKXCTest` | UI test target only | Async page objects, `SharedProcessLauncher`, navigation popper |
+| **ASTKXCTest** | `import ASTKXCTest` | UI test target only | Async page objects (`XCTWaiter` waits, `requireAsync`), `SharedProcessLauncher`, `NavigationBarPopper` |
 
 Your app keeps **fixtures, accessibility IDs, and stub use cases** in its own test kit — ASTK stays generic.
 
@@ -50,7 +79,9 @@ Your app keeps **fixtures, accessibility IDs, and stub use cases** in its own te
 
 ## Installation
 
-Add the package in Xcode (**File → Add Package Dependencies**) or in `Package.swift` using the **astk** repo URL. Xcode resolves it as the **AsyncSharedTestingKit** package:
+**AsyncSharedTestingKit** is the full Swift package name; the GitHub repo is [**astk**](https://github.com/illescasDaniel/astk).
+
+Add the package in Xcode (**File → Add Package Dependencies**) or in `Package.swift`:
 
 ```swift
 .package(url: "https://github.com/illescasDaniel/astk", from: "0.1.0")
