@@ -35,6 +35,7 @@ ASTK's `ASTKXCTest` product replaces that with **`XCTWaiter`-based async waits**
 | `waitForExistenceAsync(timeout:)` | Suspends via `XCTNSPredicateExpectation` + `XCTWaiter.fulfillment` instead of blocking |
 | `waitForElementAsync(matching:)` | Resolves an element by accessibility id, async |
 | `requireExistenceAsync` / `requireAsync` | Opt-in validation (`.visible()`, `.nonEmptyText()`, `.tappable()`, …) after existence is confirmed |
+| `tapOrClick()` | Activates an element with `click()` on macOS and `tap()` elsewhere; on macOS `tap()` may deliver no mouse event to SwiftUI controls |
 | `get async throws` page accessors | Every screen property waits asynchronously — no unloaded `XCUIElement` leaks |
 
 Page accessors wait for **existence only**; stronger checks are explicit via `requireAsync`, so tests can tap first and assert absence later (e.g. `.exists(false)` after retry).

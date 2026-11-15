@@ -26,7 +26,7 @@ public enum NavigationBarPopper {
 			guard navButtons.count > 0 else { return }
 			let backButton = navButtons.firstMatch
 			guard backButton.exists else { return }
-			backButton.tap()
+			backButton.tapOrClick()
 			if rootElements.contains(where: { $0.waitForExistence(timeout: 0.5) }) {
 				return
 			}
