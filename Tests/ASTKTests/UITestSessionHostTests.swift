@@ -14,10 +14,20 @@ struct UITestSessionHostTests {
 		host.apply(SampleConfig(id: 1))
 		#expect(host.sessionGeneration == 1)
 		#expect(applied == SampleConfig(id: 1))
+		#expect(host.configuration == SampleConfig(id: 1))
 
 		host.apply(SampleConfig(id: 2))
 		#expect(host.sessionGeneration == 2)
 		#expect(applied == SampleConfig(id: 2))
+	}
+	@Test
+	func initialGenerationIsPreservedUntilApply() {
+		let host = UITestSessionHost<SampleConfig>(initialGeneration: 1)
+		#expect(host.sessionGeneration == 1)
+		#expect(host.configuration == nil)
+		host.apply(SampleConfig(id: 3))
+		#expect(host.sessionGeneration == 2)
+		#expect(host.configuration == SampleConfig(id: 3))
 	}
 }
 

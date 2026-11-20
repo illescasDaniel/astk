@@ -170,20 +170,21 @@ final class MyScenarioHost: UITestScenarioApplying {
 }
 
 let settings = UITestSessionSettings(deepLinkScheme: "myapp-uitest")
-let coordinator = UITestSessionCoordinator<MyUITestConfiguration>(settings: settings)
-
+// Keep scenarioHost in @State on the test root.
 MyRootView()
 	.uiTestSession(
 		host: scenarioHost,
 		navigationResetter: appCoordinator,
-		coordinator: coordinator,
-		uiTestSessionGeneration: $uiTestSessionGeneration
+		settings: settings
 	)
-	.onOpenURL { coordinator.handleOpenURL($0) }
 #endif
 ```
 
-If a complex app hierarchy hits a Swift generic-`View` demangle crash with `UITestSessionView`, inline the same shell (`.id(generation)`, ready marker, `onChange(of: host.sessionGeneration)`, wire coordinator on appear) — see the GamesLibrary example below.
+The modifier manages the coordinator, ready marker, root reset, and scenario URLs. Use
+`isURLHandlingEnabled` to restrict URL handling to your UI test launch mode. For a host
+that only needs to store the latest configuration, use `UITestSessionHost<MyUITestConfiguration>`.
+Pass `initialGeneration: 1` when the launcher expects ready marker 1 before it sends
+the first scenario and the host has no initial scenario to apply.
 
 Implement `UITestNavigationResetting` on your coordinator to clear `NavigationPath` before each apply.
 
@@ -276,11 +277,14 @@ import ASTKApp
 struct UITestAppContent: View {
 	@State private var coordinator: AppCoordinator
 	@State private var scenarioHost: UITestScenarioHost
-	@State private var uiTestSessionGeneration = 0
-	@State private var sessionCoordinator: UITestSessionCoordinator<UITestConfiguration>
 
 	var body: some View {
-		// … AppRootView.id(generation), ready marker, onOpenURL …
+		AppRootView(coordinator: coordinator)
+			.uiTestSession(
+				host: scenarioHost,
+				navigationResetter: coordinator,
+				settings: UITestSupport.sessionSettings
+			)
 	}
 }
 #endif

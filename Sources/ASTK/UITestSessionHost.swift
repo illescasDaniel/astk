@@ -4,14 +4,17 @@ import Observation
 @MainActor
 @Observable
 public final class UITestSessionHost<Configuration: Codable> {
-	public private(set) var sessionGeneration = 0
+	public private(set) var sessionGeneration: Int
+	public private(set) var configuration: Configuration?
 	public var onApply: ((Configuration) -> Void)?
 
-	public init(onApply: ((Configuration) -> Void)? = nil) {
+	public init(initialGeneration: Int = 0, onApply: ((Configuration) -> Void)? = nil) {
+		self.sessionGeneration = initialGeneration
 		self.onApply = onApply
 	}
 
 	public func apply(_ configuration: Configuration) {
+		self.configuration = configuration
 		onApply?(configuration)
 		sessionGeneration += 1
 	}
